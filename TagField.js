@@ -2,6 +2,7 @@
  * TagField
  * For use in ExtJS 6.x Modern
  * @author Brandon Ryall-Ortiz <brandon.ryall@facilitiesexchange.com>, <brandon@guilt.io>
+ * Facilities Exchange www.facilitiesexchange.com
  **/
 Ext.define('Ext.field.TagField', {
 	extend: 'Ext.field.Picker',
