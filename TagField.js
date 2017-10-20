@@ -48,6 +48,7 @@ Ext.define('Ext.field.TagField', {
 			this.addTag( recs[ i ] );
 			i++;
 		}
+		this.validate();
 	},
 
 	onDeselect( t, recs ) {
@@ -57,6 +58,7 @@ Ext.define('Ext.field.TagField', {
 			this.removeTag( recs[ i ] );
 			i++;
 		}
+		this.validate();
 	},
 
 	addTag( tag ) {
@@ -167,5 +169,61 @@ Ext.define('Ext.field.TagField', {
 		}
 	},
 
-	updateInputValue() {} // Do nothing!
+	updateInputValue() {}, // Do nothing!
+
+	isInputField: false,
+	isSelectField: true,
+
+	validate(skipLazy) {
+		let me = this,
+		empty, errors, field, record, validity, value;
+
+		if (me.isConfiguring && me.validateOnInit === 'none') {
+			return true;
+		}
+
+		if (!me.getDisabled() || me.getValidateDisabled()) {
+			errors = [];
+
+			if (me.isInputField && !me.isSelectField) {
+				value = me.getInputValue();
+				empty = !value;
+				validity = empty && me.inputElement.dom.validity;
+				if (validity && validity.badInput) {
+					errors.push(me.badFormatMessage);
+					empty = false;
+				}
+			} else {
+				value = me.getValue();
+				empty = value === '' || value == null || !value.length;
+			}
+
+			if (empty && me.getRequired()) {
+				errors.push(me.getRequiredMessage());
+			} else if (!errors.length) {
+				if (!empty) {
+					value = me.parseValue(value, errors);
+				}
+				if (!errors.length) {
+					field = me._validationField;
+					record = me._validationRecord;
+
+					if (field && record) {
+						field.validate(value, null, errors, record);
+					}
+
+					if (!empty) {
+						me.doValidate(value, errors, skipLazy);
+					}
+				}
+			}
+			if(errors.length) {
+				me.setError(errors);
+				return false;
+			}
+		}
+
+		me.setError(null);
+		return true;
+	}
 });
