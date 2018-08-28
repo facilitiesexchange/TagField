@@ -2,7 +2,7 @@
  * TagField
  * For use in ExtJS 6.x Modern
  * @author Brandon Ryall-Ortiz <brandon.ryall@facilitiesexchange.com>, <brandon@guilt.io>
- * Facilities Exchange www.facilitiesexchange.com
+ * Facilities Exchange www.fexa.io
  **/
 Ext.define('Ext.field.TagField', {
 	extend: 'Ext.field.Picker',
@@ -18,6 +18,7 @@ Ext.define('Ext.field.TagField', {
 		store: null,
 		displayField: 'text',
 		valueField: 'id',
+		picker: 'floated',
 		floatedPicker: {
 			xtype: 'list',
 			selectable: 'multi'
@@ -30,12 +31,12 @@ Ext.define('Ext.field.TagField', {
 			const me = this;
 			let v = this.getInputValue();
 
-			if( v.length ) {
-				this.getStore().filterBy( ( rec ) => {
+			if( v && v.length ) {
+				this.getPicker().getStore().filterBy( ( rec ) => {
 					return rec.get( me.getDisplayField() ).match( new RegExp( me.getInputValue(), 'gi' ) ) !== null;
 				} );
 			} else {
-				this.getStore().clearFilter();
+				this.getPicker().getStore().clearFilter();
 			}
 		}
 	},
@@ -46,6 +47,10 @@ Ext.define('Ext.field.TagField', {
 			this._selected = {};
 		}
 		while( i < len ) {
+			// Don't add a selection if it is already selected
+			if( this._selected[ recs[ i ].get( this.getValueField() ) ] ) {
+				break;
+			}
 			this._selected[ recs[ i ].get( this.getValueField() ) ] = recs[ i ];
 			this.addTag( recs[ i ] );
 			i++;
@@ -57,24 +62,38 @@ Ext.define('Ext.field.TagField', {
 	onDeselect( t, recs ) {
 		let i = 0, len = recs.length;
 		while( i < len ) {
-			delete this.selected[ recs[ i ].get( this.getValueField() ) ];
+			delete this._selected[ recs[ i ].get( this.getValueField() ) ];
 			this.removeTag( recs[ i ] );
 			i++;
 		}
 		this.validate();
 	},
 
+	reset() {
+		this._selected = {};
+		this.removeAllTags();
+		this.callParent(arguments);
+	},
+
 	addTag( tag ) {
 		let el = document.createElement( 'span' );
 		el.id = `${this.id}-tag-${tag.internalId}`;
-		el.innerHTML = `${tag.get( this.getDisplayField() )} <span style="margin-left: 2px; color: var( --base-foreground-color ); cursor: pointer;" class="x-fa fa-times-circle" aria-hidden="true">&nbsp;</span>`;
+		el.innerHTML = `${tag.get( this.getDisplayField() )} <span style="margin-left: 2px; color: var( --base-foreground-color ); cursor: pointer;${ tag.preventDeselection && ' display: none;' }" class="x-fa fa-times-circle" aria-hidden="true">&nbsp;</span>`;
 		el.style.padding = '4px';
 		el.style.margin = '4px';
 		el.style.cursor = 'default';
 		el.style.backgroundColor = 'var( --base-color )';
 		el.style.color = 'var( --base-foreground-color )';
 		el.style.borderRadius = '3px';
-		el.style.boxShadow = '1px 1px 1px var( --base-dark-color )';
+		if( tag.tagCls ) {
+			el.classList.add( tag.tagCls );
+		}
+		if( tag.color ) {
+			el.style.border = `2px solid ${ tag.color }`;
+		} else {
+			el.style.boxShadow = '1px 1px 1px var( --base-dark-color )';
+		}
+		el.setAttribute( 'tagFieldSpan', true );
 
 		el.querySelector( 'span' ).addEventListener( 'click', function() {
 			this.getPicker().onItemDeselect( [ tag ] );
@@ -94,6 +113,8 @@ Ext.define('Ext.field.TagField', {
 	},
 
 	removeTag( tag ) {
+		let removed = tag.get( this.getValueField() );
+
 		let el = this.beforeInputElement.down( `#${this.id}-tag-${tag.internalId}` );
 		if( el ) {
 			el.destroy();
@@ -105,27 +126,40 @@ Ext.define('Ext.field.TagField', {
 
 		// This let and its nullification seem unnecessary, but it was implied that this would aid with garbage collection
 		let storedValues = this.getValue();
-		this.fireEvent( 'change', this, storedValues, this._selected );
+		this.fireEvent( 'change', this, storedValues, this._selected, removed );
 		storedValues = null;
+		removed = null;
+	},
+
+	removeAllTags() {
+		let items = this.beforeInputElement.query( 'span[tagFieldSpan=true]' ),
+			i = items.length, el;
+
+		while( i-- ) {
+			el = this.beforeInputElement.down( `#${items[ i ].id}` );
+			if( el ) {
+				el.destroy();
+			}
+		}
 	},
 
 	createFloatedPicker() {
 		const me = this;
 		let result = Ext.merge({
-			ownerCmp: me,
-			store: me.getStore(),
-			itemTpl: me.itemTpl ? me.itemTpl : `{${me.getDisplayField()}}`,
-			listeners: {
-				select: {
-					fn: me.onSelect,
-					scope: me
-				},
-				deselect: {
-					fn: me.onDeselect,
-					scope: me
+				ownerCmp: me,
+				store: me.getStore(),
+				itemTpl: me.itemTpl ? me.itemTpl : `{${me.getDisplayField()}}`,
+				listeners: {
+					select: {
+						fn: me.onSelect,
+						scope: me
+					},
+					deselect: {
+						fn: me.onDeselect,
+						scope: me
+					}
 				}
-			}
-		}, me.getFloatedPicker());
+			}, me.getFloatedPicker());
 		return result;
 	},
 
@@ -148,9 +182,16 @@ Ext.define('Ext.field.TagField', {
 			v = [ v ];
 		}
 
-		let i = 0, len = v.length, store = this.getStore(), f;
+		let i = 0, len = v.length, store = this.getPicker().getStore(), f, me = this;
 
 		if( !store ) {
+			return false;
+		}
+
+		if( !store.isLoaded() ) {
+			store.addListener( 'load', () => {
+				me.setValue( v );
+			} );
 			return false;
 		}
 
@@ -195,7 +236,7 @@ Ext.define('Ext.field.TagField', {
 
 	validate(skipLazy) {
 		let me = this,
-			empty, errors, field, record, validity, value;
+		empty, errors, field, record, validity, value;
 
 		if (me.isConfiguring && me.validateOnInit === 'none') {
 			return true;
